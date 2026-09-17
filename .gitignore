@@ -1,0 +1,10 @@
+build/
+classes/
+gen/
+__pycache__/
+*.pyc
+*.jks
+*.keystore
+.env
+*.tmb
+*.zip
