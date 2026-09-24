@@ -7,7 +7,7 @@ A small Android TV / Fire TV receiver for bundles exported by the
 
 1. Download [the APK](https://github.com/ayala/tidyTIVI-companion/releases/latest/download/tidyTIVI-companion.apk) and sideload it onto an Android-based Fire TV or Android TV device.
 2. Install and activate TiviMate separately. This release was tested with TiviMate 5.3.3.
-3. Open tidyTIVI, allow file access, and save the private bundle download link from the plugin. HTTPS, Dropbox and Google Drive links are supported.
+3. Open tidyTIVI, allow file access, and save the private bundle download link from the plugin. Use the Dropbox link produced by the plugin. [Connection guide](https://github.com/ayala/tidyTIVI/blob/main/CLOUD-SETUP.md#plugin-users). Existing HTTPS and Google Drive links remain compatible.
 4. Press **Update TiviMate**. The app downloads and verifies the bundle, installs the backup, playlists and complete logo folders, then opens TiviMate's native Restore prompt.
 5. Confirm **Restore**. Restoring replaces the existing TiviMate setup; include all desired profiles in one export. TiviMate also needs access to the shared logo directory.
 
@@ -45,7 +45,9 @@ the same key. Override SDK versions using `ANDROID_BUILD_TOOLS` and
 Tested on an unrooted Android TV emulator with TiviMate 5.3.3: bundle download,
 logo installation, native Restore confirmation, repeated restore, and rejection
 of corrupted downloads while retaining the previous backup. Physical Fire TV
-hardware and actual Dropbox/Google Drive hosted downloads still need testing. First-run
+hardware and actual Google Drive hosted downloads still need testing. Dropbox-hosted
+download and installation were verified on the emulator with plugin 0.5.1: all
+823 payload files matched the manifest, and TiviMate displayed Restore confirmation. First-run
 file permission screens vary by Android/Fire OS version. This app neither installs
 nor activates TiviMate and cannot silently confirm its Restore dialog.
 
