@@ -11,10 +11,11 @@ public class MainActivity extends Activity {
  private final Handler ui=new Handler(Looper.getMainLooper());
  private final Runnable expire=()->{if(connecting){stopPairing();home();show("Connection expired. Press Connect to try again.");}};
  private static final int BLUE=Color.rgb(7,147,215);
- private Button button(String text){Button b=new Button(this);b.setText(text);b.setTextColor(Color.WHITE);b.setTextSize(16);
-  android.graphics.drawable.GradientDrawable normal=new android.graphics.drawable.GradientDrawable();normal.setColor(BLUE);normal.setCornerRadius(dp(5));
-  android.graphics.drawable.GradientDrawable focus=new android.graphics.drawable.GradientDrawable();focus.setColor(BLUE);focus.setCornerRadius(dp(5));focus.setStroke(dp(3),Color.WHITE);
-  android.graphics.drawable.StateListDrawable background=new android.graphics.drawable.StateListDrawable();background.addState(new int[]{android.R.attr.state_focused},focus);background.addState(new int[]{android.R.attr.state_pressed},focus);background.addState(new int[]{},normal);b.setBackground(background);return b;
+ private Button button(String text){Button b=new Button(this);b.setText(text);b.setTextColor(Color.WHITE);b.setTextSize(16);styleButton(b,BLUE);return b;}
+ private void styleButton(Button b,int color){
+  android.graphics.drawable.GradientDrawable normal=new android.graphics.drawable.GradientDrawable();normal.setColor(color);normal.setCornerRadius(dp(5));
+  android.graphics.drawable.GradientDrawable focus=new android.graphics.drawable.GradientDrawable();focus.setColor(color);focus.setCornerRadius(dp(5));focus.setStroke(dp(3),Color.WHITE);
+  android.graphics.drawable.StateListDrawable background=new android.graphics.drawable.StateListDrawable();background.addState(new int[]{android.R.attr.state_focused},focus);background.addState(new int[]{android.R.attr.state_pressed},focus);background.addState(new int[]{},normal);b.setBackground(background);
  }
  private void addButton(LinearLayout layout,Button b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(320),dp(48));p.topMargin=dp(10);layout.addView(b,p);}
  private TextView label(String text,int size){TextView t=new TextView(this);t.setText(text);t.setTextSize(size);t.setTextColor(Color.WHITE);t.setGravity(Gravity.CENTER);return t;}
@@ -28,7 +29,7 @@ public class MainActivity extends Activity {
   status=label("",17);status.setTextColor(Color.LTGRAY);status.setPadding(0,dp(18),0,0);home.addView(status,new LinearLayout.LayoutParams(-1,-2));
   home();show(getPreferences(0).getString("url","").isEmpty()?"Press Connect to get started.":"Link saved. Press Update TiviMate.");
  }
- private void home(){connecting=false;setContentView(home);setup.setFocusableInTouchMode(true);setup.requestFocus();}
+ private void home(){connecting=false;boolean linked=!getPreferences(0).getString("url","").isEmpty();setup.setText(linked?"Connected":"Connect");styleButton(setup,linked?Color.rgb(35,139,77):BLUE);setContentView(home);setup.setFocusableInTouchMode(true);setup.requestFocus();}
  private void show(String message){runOnUiThread(()->status.setText(message));}
  private void stopPairing(){ui.removeCallbacks(expire);if(pairing!=null){pairing.close();pairing=null;}getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
  @Override public void onBackPressed(){if(connecting){stopPairing();home();}else super.onBackPressed();}
@@ -44,7 +45,7 @@ public class MainActivity extends Activity {
   TextView heading=label("Scan to connect",25);content.addView(heading);
   TextView hint=label("Phone + Firestick on the same Wi-Fi",14);hint.setPadding(0,dp(10),0,dp(5));
   try{String page;try(InputStream in=getAssets().open("pairing.html");ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] bytes=new byte[4096];int n;while((n=in.read(bytes))!=-1)out.write(bytes,0,n);page=out.toString("UTF-8");}
-   pairing=new PairingServer(localAddress(),page,new PairingServer.Receiver(){public void save(String value)throws Exception{String url=normalize(value);if(!url.startsWith("https://"))throw new IOException();if(!getPreferences(0).edit().putString("url",url).commit())throw new IOException();}public void complete(){runOnUiThread(()->{stopPairing();home();show("Link saved. Press Update TiviMate.");});}});
+   pairing=new PairingServer(localAddress(),page,new PairingServer.Receiver(){public void save(String value)throws Exception{String url=normalize(value);if(!url.startsWith("https://"))throw new IOException();if(!getPreferences(0).edit().putString("url",url).commit())throw new IOException();}public void complete(){runOnUiThread(()->{final PairingServer completed=pairing;ui.removeCallbacks(expire);home();getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);show("Link saved. Press Update TiviMate.");ui.postDelayed(()->{if(pairing==completed)stopPairing();},20000);});}});
    com.google.zxing.common.BitMatrix matrix=new com.google.zxing.qrcode.QRCodeWriter().encode(pairing.url(),com.google.zxing.BarcodeFormat.QR_CODE,640,640);
    android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(640,640,android.graphics.Bitmap.Config.RGB_565);int[] pixels=new int[640*640];for(int y=0;y<640;y++)for(int x=0;x<640;x++)pixels[y*640+x]=matrix.get(x,y)?Color.BLACK:Color.WHITE;bitmap.setPixels(pixels,0,640,0,0,640,640);
    ImageView qr=new ImageView(this);qr.setImageBitmap(bitmap);qr.setContentDescription("Scan this QR code with your phone to connect");LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(dp(235),dp(235));qp.topMargin=dp(12);content.addView(qr,qp);pairing.start();ui.postDelayed(expire,10*60*1000);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -105,7 +106,7 @@ public class MainActivity extends Activity {
  private void download(String input,File dest)throws Exception{
   String url=normalize(input);HttpURLConnection conn=null;java.net.CookieManager cookies=new java.net.CookieManager(null,java.net.CookiePolicy.ACCEPT_ORIGINAL_SERVER);
   try{for(int redirect=0;redirect<8;redirect++){
-    conn=(HttpURLConnection)new URL(url).openConnection();conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(30000);conn.setReadTimeout(60000);conn.setRequestProperty("User-Agent","tidyTIVI/0.6.0");
+    conn=(HttpURLConnection)new URL(url).openConnection();conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(30000);conn.setReadTimeout(60000);conn.setRequestProperty("User-Agent","tidyTIVI/0.6.1");
     for(Map.Entry<String,List<String>> h:cookies.get(new URI(url),Collections.emptyMap()).entrySet())conn.setRequestProperty(h.getKey(),android.text.TextUtils.join("; ",h.getValue()));
     int code=conn.getResponseCode();cookies.put(new URI(url),conn.getHeaderFields());if(code>=300&&code<400){String next=conn.getHeaderField("Location");if(next==null)throw new IOException();String resolved=new URL(new URL(url),next).toString();conn.disconnect();url=normalize(resolved);continue;}
     if(code!=200)throw new UserError("Download unavailable. Check the shared link and cloud file access.");

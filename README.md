@@ -1,4 +1,4 @@
-# tidyTIVI companion 0.6.0
+# tidyTIVI companion 0.6.1
 
 A small Android TV / Fire TV receiver for bundles exported by the
 [tidyTIVI Dispatcharr plugin](https://github.com/ayala/tidyTIVI).
@@ -31,8 +31,9 @@ pairing service is needed on the companion. Dispatcharr can be elsewhere.
 Connect opens a temporary HTTP page on the TV device’s local network. The QR
 contains a random, single-use session address, never your Dropbox link. The phone
 page sends the link directly to the TV, which stores it privately and returns to
-the home screen. The listener stops after connection, Back, leaving the app, or
-10 minutes. It does not serve backups, credentials, or previously saved links.
+the home screen. After saving, a 20-second grace period lets the browser finish or retry its
+confirmation without changing the saved link. Before saving, the listener stops
+on Back, leaving the app, or after 10 minutes. It does not serve backups, credentials, or previously saved links.
 Use a trusted Wi-Fi network: this local setup transfer uses HTTP, not TLS. Guest
 Wi-Fi/client isolation, VPN routing, or firewalls can block it; manual entry is
 always available. Keep the Connect screen open while setting up.
@@ -94,3 +95,20 @@ Final 0.6.0 emulator check: Connect is first and focused on launch; Update TiviM
 is second. After saving through both QR setup and manual entry, the Dropbox bundle
 downloaded successfully, all 823 payload files matched their manifest, and the
 native TiviMate Restore confirmation appeared. Restore was left for the user.
+
+## 0.6.1 phone connection fix
+
+Corrects the referrer policy so Safari sends the expected same-origin form origin.
+Desktop Safari previously rejected the submission and now displays Connected.
+Handles browser preconnections concurrently and finishes the HTTP response before
+closing the setup session. Retried submissions acknowledge the existing save.
+Regression tests cover idle connections, complete responses, retries, invalid
+links, origin checks, and cancellation. Physical Firestick/iPhone verification
+remains pending. Update the APK on the Firestick and scan a fresh Connect QR.
+
+A saved link changes Connect to a green Connected button, including after reopening
+the app. It stays focused and clickable to replace the link. This indicates that
+the link was saved; Update TiviMate still verifies the downloaded bundle.
+
+Verified 0.6.1 QR submission and retry in the Android TV emulator; the real saved
+link was preserved and the home screen returned successfully.
