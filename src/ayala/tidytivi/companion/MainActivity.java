@@ -7,20 +7,54 @@ public class MainActivity extends Activity {
  private final ExecutorService worker=Executors.newSingleThreadExecutor();
  private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
  private File root(){return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"tidyTIVI");}
- public void onCreate(Bundle state){super.onCreate(state);
-  LinearLayout layout=new LinearLayout(this);layout.setOrientation(1);layout.setGravity(Gravity.CENTER);layout.setPadding(dp(32),dp(14),dp(32),dp(14));layout.setBackgroundColor(Color.rgb(15,22,32));
-  ImageView logo=new ImageView(this);logo.setImageResource(ayala.tidytivi.companion.R.drawable.logo);layout.addView(logo,new LinearLayout.LayoutParams(dp(100),dp(100)));
-  TextView title=new TextView(this);title.setText("Your TiviMate setup, up to date");title.setTextSize(26);title.setGravity(Gravity.CENTER);title.setTextColor(Color.WHITE);title.setPadding(0,20,0,14);layout.addView(title);
-  update=new Button(this);update.setText("Update TiviMate");layout.addView(update,new LinearLayout.LayoutParams(dp(320),dp(56)));update.setOnClickListener(v->begin());
-  setup=new Button(this);setup.setText("Download link");layout.addView(setup,new LinearLayout.LayoutParams(dp(320),dp(52)));setup.setOnClickListener(v->configure());
-  status=new TextView(this);status.setTextSize(17);status.setTextColor(Color.LTGRAY);status.setGravity(Gravity.CENTER);status.setPadding(0,20,0,0);layout.addView(status,new LinearLayout.LayoutParams(-1,-2));
-  setContentView(layout);show(getPreferences(0).getString("url","").isEmpty()?"Set your cloud download link once, then press Update.":"Ready. Download the latest backup and logos, then confirm Restore in TiviMate.");update.requestFocus();
+ private LinearLayout home; private PairingServer pairing; private boolean connecting;
+ private final Handler ui=new Handler(Looper.getMainLooper());
+ private final Runnable expire=()->{if(connecting){stopPairing();home();show("Connection expired. Press Connect to try again.");}};
+ private static final int BLUE=Color.rgb(7,147,215);
+ private Button button(String text){Button b=new Button(this);b.setText(text);b.setTextColor(Color.WHITE);b.setTextSize(16);
+  android.graphics.drawable.GradientDrawable normal=new android.graphics.drawable.GradientDrawable();normal.setColor(BLUE);normal.setCornerRadius(dp(5));
+  android.graphics.drawable.GradientDrawable focus=new android.graphics.drawable.GradientDrawable();focus.setColor(BLUE);focus.setCornerRadius(dp(5));focus.setStroke(dp(3),Color.WHITE);
+  android.graphics.drawable.StateListDrawable background=new android.graphics.drawable.StateListDrawable();background.addState(new int[]{android.R.attr.state_focused},focus);background.addState(new int[]{android.R.attr.state_pressed},focus);background.addState(new int[]{},normal);b.setBackground(background);return b;
  }
+ private void addButton(LinearLayout layout,Button b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(320),dp(48));p.topMargin=dp(10);layout.addView(b,p);}
+ private TextView label(String text,int size){TextView t=new TextView(this);t.setText(text);t.setTextSize(size);t.setTextColor(Color.WHITE);t.setGravity(Gravity.CENTER);return t;}
+ public void onCreate(Bundle state){super.onCreate(state);
+  home=new LinearLayout(this);home.setOrientation(1);home.setGravity(Gravity.CENTER);home.setPadding(dp(32),dp(14),dp(32),dp(14));home.setBackgroundColor(Color.rgb(15,22,32));
+  ImageView logo=new ImageView(this);logo.setImageResource(ayala.tidytivi.companion.R.drawable.logo);
+  logo.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,android.graphics.Outline o){o.setRoundRect(0,0,v.getWidth(),v.getHeight(),dp(16));}});logo.setClipToOutline(true);home.addView(logo,new LinearLayout.LayoutParams(dp(100),dp(100)));
+  TextView title=label("Your TiviMate setup, up to date",26);title.setPadding(0,dp(15),0,dp(6));home.addView(title);
+  setup=button("Connect");addButton(home,setup);setup.setOnClickListener(v->configure());
+  update=button("Update TiviMate");addButton(home,update);update.setOnClickListener(v->begin());
+  status=label("",17);status.setTextColor(Color.LTGRAY);status.setPadding(0,dp(18),0,0);home.addView(status,new LinearLayout.LayoutParams(-1,-2));
+  home();show(getPreferences(0).getString("url","").isEmpty()?"Press Connect to get started.":"Link saved. Press Update TiviMate.");
+ }
+ private void home(){connecting=false;setContentView(home);setup.setFocusableInTouchMode(true);setup.requestFocus();}
  private void show(String message){runOnUiThread(()->status.setText(message));}
- private void configure(){if(busy)return;EditText entry=new EditText(this);entry.setSingleLine(true);entry.setInputType(0x81);entry.setHint("HTTPS, Dropbox or Google Drive link");entry.setText(getPreferences(0).getString("url",""));
-  new AlertDialog.Builder(this).setTitle("Private download link").setMessage("Paste the stable link from tidyTIVI's cloud export. It is saved only on this device.").setView(entry).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
-   try{String url=normalize(entry.getText().toString().trim());getPreferences(0).edit().putString("url",url).apply();show("Link saved. Press Update TiviMate.");}catch(Exception e){show("Enter a valid HTTPS download link.");}
-  }).show();
+ private void stopPairing(){ui.removeCallbacks(expire);if(pairing!=null){pairing.close();pairing=null;}getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
+ @Override public void onBackPressed(){if(connecting){stopPairing();home();}else super.onBackPressed();}
+ @Override protected void onStop(){if(connecting){stopPairing();home();}super.onStop();}
+ @Override protected void onDestroy(){stopPairing();worker.shutdown();super.onDestroy();}
+ private InetAddress localAddress()throws Exception{
+  ArrayList<InetAddress> candidates=new ArrayList<>();Enumeration<NetworkInterface> interfaces=NetworkInterface.getNetworkInterfaces();
+  while(interfaces.hasMoreElements()){NetworkInterface n=interfaces.nextElement();if(!n.isUp()||n.isLoopback())continue;Enumeration<InetAddress> addresses=n.getInetAddresses();while(addresses.hasMoreElements()){InetAddress a=addresses.nextElement();if(a instanceof Inet4Address&&a.isSiteLocalAddress()){if(n.getName().startsWith("wlan")||n.getName().startsWith("eth"))return a;candidates.add(a);}}}
+  if(candidates.isEmpty())throw new IOException();return candidates.get(0);
+ }
+ private void configure(){if(busy)return;stopPairing();connecting=true;
+  LinearLayout content=new LinearLayout(this);content.setOrientation(1);content.setGravity(Gravity.CENTER);content.setPadding(dp(20),dp(12),dp(20),dp(12));content.setBackgroundColor(Color.rgb(15,22,32));
+  TextView heading=label("Scan to connect",25);content.addView(heading);
+  TextView hint=label("Phone + Firestick on the same Wi-Fi",14);hint.setPadding(0,dp(10),0,dp(5));
+  try{String page;try(InputStream in=getAssets().open("pairing.html");ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] bytes=new byte[4096];int n;while((n=in.read(bytes))!=-1)out.write(bytes,0,n);page=out.toString("UTF-8");}
+   pairing=new PairingServer(localAddress(),page,new PairingServer.Receiver(){public void save(String value)throws Exception{String url=normalize(value);if(!url.startsWith("https://"))throw new IOException();if(!getPreferences(0).edit().putString("url",url).commit())throw new IOException();}public void complete(){runOnUiThread(()->{stopPairing();home();show("Link saved. Press Update TiviMate.");});}});
+   com.google.zxing.common.BitMatrix matrix=new com.google.zxing.qrcode.QRCodeWriter().encode(pairing.url(),com.google.zxing.BarcodeFormat.QR_CODE,640,640);
+   android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(640,640,android.graphics.Bitmap.Config.RGB_565);int[] pixels=new int[640*640];for(int y=0;y<640;y++)for(int x=0;x<640;x++)pixels[y*640+x]=matrix.get(x,y)?Color.BLACK:Color.WHITE;bitmap.setPixels(pixels,0,640,0,0,640,640);
+   ImageView qr=new ImageView(this);qr.setImageBitmap(bitmap);qr.setContentDescription("Scan this QR code with your phone to connect");LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(dp(235),dp(235));qp.topMargin=dp(12);content.addView(qr,qp);pairing.start();ui.postDelayed(expire,10*60*1000);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+  }catch(Exception e){stopPairing();hint.setText("Connect to Wi-Fi, or enter your link manually.");}
+  content.addView(hint);Button manual=button("Enter link manually");addButton(content,manual);manual.setOnClickListener(v->manualLink());
+  ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(content);setContentView(scroll);manual.requestFocus();
+ }
+ private void manualLink(){EditText entry=new EditText(this);entry.setSingleLine(true);entry.setInputType(0x81);entry.setHint("HTTPS download link");entry.setText(getPreferences(0).getString("url",""));
+  AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Download link").setView(entry).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();
+  dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{String url=normalize(entry.getText().toString().trim());getPreferences(0).edit().putString("url",url).apply();dialog.dismiss();stopPairing();home();show("Link saved. Press Update TiviMate.");}catch(Exception e){entry.setError("Enter a valid HTTPS download link.");}}));dialog.show();
  }
  static String normalize(String value)throws Exception{
   Uri uri=Uri.parse(value);String host=uri.getHost();
@@ -71,7 +105,7 @@ public class MainActivity extends Activity {
  private void download(String input,File dest)throws Exception{
   String url=normalize(input);HttpURLConnection conn=null;java.net.CookieManager cookies=new java.net.CookieManager(null,java.net.CookiePolicy.ACCEPT_ORIGINAL_SERVER);
   try{for(int redirect=0;redirect<8;redirect++){
-    conn=(HttpURLConnection)new URL(url).openConnection();conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(30000);conn.setReadTimeout(60000);conn.setRequestProperty("User-Agent","tidyTIVI/0.5.0");
+    conn=(HttpURLConnection)new URL(url).openConnection();conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(30000);conn.setReadTimeout(60000);conn.setRequestProperty("User-Agent","tidyTIVI/0.6.0");
     for(Map.Entry<String,List<String>> h:cookies.get(new URI(url),Collections.emptyMap()).entrySet())conn.setRequestProperty(h.getKey(),android.text.TextUtils.join("; ",h.getValue()));
     int code=conn.getResponseCode();cookies.put(new URI(url),conn.getHeaderFields());if(code>=300&&code<400){String next=conn.getHeaderField("Location");if(next==null)throw new IOException();String resolved=new URL(new URL(url),next).toString();conn.disconnect();url=normalize(resolved);continue;}
     if(code!=200)throw new UserError("Download unavailable. Check the shared link and cloud file access.");

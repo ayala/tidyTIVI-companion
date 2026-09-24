@@ -1,6 +1,7 @@
 """Build a signed APK with an installed Android SDK and an external keystore."""
 from pathlib import Path
 import os
+import hashlib
 import shutil
 import subprocess
 
@@ -38,6 +39,9 @@ if not key.exists():
          '-alias', alias, '-keyalg', 'RSA', '-keysize', '3072', '-validity', '10000',
          '-dname', 'CN=tidyTIVI Development'])
     key.chmod(0o600)
+dependency = ROOT / 'libs/zxing-core-3.5.3.jar'
+if hashlib.sha256(dependency.read_bytes()).hexdigest() != '8d8064c1636fdaef7189dd9055c7d59950a8940a12f2293956446ec3c109fd82':
+    raise SystemExit('ZXing dependency checksum mismatch.')
 for name in ('gen', 'classes', 'build'):
     path = ROOT / name
     if path.exists():
@@ -45,10 +49,10 @@ for name in ('gen', 'classes', 'build'):
     path.mkdir()
 run([build_tools / 'aapt', 'package', '-f', '-M', 'AndroidManifest.xml', '-I', android_jar,
      '-S', 'res', '-A', 'assets', '-J', 'gen', '-F', 'build/unsigned.apk'])
-run([java / 'javac', '--release', '8', '-classpath', android_jar, '-d', 'classes',
+run([java / 'javac', '--release', '8', '-classpath', str(android_jar) + os.pathsep + str(dependency), '-d', 'classes',
      *ROOT.glob('src/**/*.java'), *ROOT.glob('gen/**/*.java')])
 run([build_tools / 'd8', '--min-api', '23', '--lib', android_jar, '--output', 'build',
-     *ROOT.glob('classes/**/*.class')])
+     *ROOT.glob('classes/**/*.class'), dependency])
 run([build_tools / 'aapt', 'add', 'unsigned.apk', 'classes.dex'], cwd=ROOT / 'build')
 run([build_tools / 'zipalign', '-f', '4', 'build/unsigned.apk', 'build/aligned.apk'])
 run([build_tools / 'apksigner', 'sign', '--ks', key, '--ks-key-alias', alias,
