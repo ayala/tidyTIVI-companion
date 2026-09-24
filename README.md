@@ -47,7 +47,9 @@ logo installation, native Restore confirmation, repeated restore, and rejection
 of corrupted downloads while retaining the previous backup. Physical Fire TV
 hardware and actual Google Drive hosted downloads still need testing. Dropbox-hosted
 download and installation were verified on the emulator with plugin 0.5.1: all
-823 payload files matched the manifest, and TiviMate displayed Restore confirmation. First-run
+823 payload files matched the manifest. Restore was then confirmed; TiviMate
+restarted with custom channel names and logos visible and live playback working.
+The current post-restore EPG refresh has not yet been verified to populate listings. First-run
 file permission screens vary by Android/Fire OS version. This app neither installs
 nor activates TiviMate and cannot silently confirm its Restore dialog.
 
