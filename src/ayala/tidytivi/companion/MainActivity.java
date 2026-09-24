@@ -14,11 +14,11 @@ public class MainActivity extends Activity {
   update=new Button(this);update.setText("Update TiviMate");layout.addView(update,new LinearLayout.LayoutParams(dp(320),dp(56)));update.setOnClickListener(v->begin());
   setup=new Button(this);setup.setText("Download link");layout.addView(setup,new LinearLayout.LayoutParams(dp(320),dp(52)));setup.setOnClickListener(v->configure());
   status=new TextView(this);status.setTextSize(17);status.setTextColor(Color.LTGRAY);status.setGravity(Gravity.CENTER);status.setPadding(0,20,0,0);layout.addView(status,new LinearLayout.LayoutParams(-1,-2));
-  setContentView(layout);show(getPreferences(0).getString("url","").isEmpty()?"Set your Dropbox download link once, then press Update.":"Ready. Download the latest backup and logos, then confirm Restore in TiviMate.");update.requestFocus();
+  setContentView(layout);show(getPreferences(0).getString("url","").isEmpty()?"Set your cloud download link once, then press Update.":"Ready. Download the latest backup and logos, then confirm Restore in TiviMate.");update.requestFocus();
  }
  private void show(String message){runOnUiThread(()->status.setText(message));}
- private void configure(){if(busy)return;EditText entry=new EditText(this);entry.setSingleLine(true);entry.setInputType(0x81);entry.setHint("HTTPS or Dropbox shared link");entry.setText(getPreferences(0).getString("url",""));
-  new AlertDialog.Builder(this).setTitle("Private download link").setMessage("Paste the stable link from tidyTIVI's Dropbox export. It is saved only on this device.").setView(entry).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
+ private void configure(){if(busy)return;EditText entry=new EditText(this);entry.setSingleLine(true);entry.setInputType(0x81);entry.setHint("HTTPS, Dropbox or Google Drive link");entry.setText(getPreferences(0).getString("url",""));
+  new AlertDialog.Builder(this).setTitle("Private download link").setMessage("Paste the stable link from tidyTIVI's cloud export. It is saved only on this device.").setView(entry).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
    try{String url=normalize(entry.getText().toString().trim());getPreferences(0).edit().putString("url",url).apply();show("Link saved. Press Update TiviMate.");}catch(Exception e){show("Enter a valid HTTPS download link.");}
   }).show();
  }
@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
   if(uri.getUserInfo()!=null)throw new IOException();
   if(host.equals("www.dropbox.com") || host.equals("dropbox.com")){
    Uri.Builder b=uri.buildUpon().clearQuery();for(String key:uri.getQueryParameterNames())if(!key.equals("dl")&&!key.equals("raw"))for(String val:uri.getQueryParameters(key))b.appendQueryParameter(key,val);value=b.appendQueryParameter("dl","1").build().toString();
-  }return value;
+  }return DriveLinks.normalize(value);
  }
  private boolean permissions(){
   if(Build.VERSION.SDK_INT>=30 && !Environment.isExternalStorageManager()){
@@ -69,11 +69,17 @@ public class MainActivity extends Activity {
   }finally{remove(stage);zip.delete();}
  }
  private void download(String input,File dest)throws Exception{
-  String url=normalize(input);HttpURLConnection conn=null;
+  String url=normalize(input);HttpURLConnection conn=null;java.net.CookieManager cookies=new java.net.CookieManager(null,java.net.CookiePolicy.ACCEPT_ORIGINAL_SERVER);
   try{for(int redirect=0;redirect<8;redirect++){
-    conn=(HttpURLConnection)new URL(url).openConnection();conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(30000);conn.setReadTimeout(60000);conn.setRequestProperty("User-Agent","tidyTIVI/0.4.0");
-    int code=conn.getResponseCode();if(code>=300&&code<400){String next=conn.getHeaderField("Location");if(next==null)throw new IOException();String resolved=new URL(new URL(url),next).toString();conn.disconnect();url=normalize(resolved);continue;}
-    if(code!=200)throw new UserError("Download unavailable. Check the shared link and Dropbox access.");
+    conn=(HttpURLConnection)new URL(url).openConnection();conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(30000);conn.setReadTimeout(60000);conn.setRequestProperty("User-Agent","tidyTIVI/0.5.0");
+    for(Map.Entry<String,List<String>> h:cookies.get(new URI(url),Collections.emptyMap()).entrySet())conn.setRequestProperty(h.getKey(),android.text.TextUtils.join("; ",h.getValue()));
+    int code=conn.getResponseCode();cookies.put(new URI(url),conn.getHeaderFields());if(code>=300&&code<400){String next=conn.getHeaderField("Location");if(next==null)throw new IOException();String resolved=new URL(new URL(url),next).toString();conn.disconnect();url=normalize(resolved);continue;}
+    if(code!=200)throw new UserError("Download unavailable. Check the shared link and cloud file access.");
+    if(conn.getContentType()!=null && conn.getContentType().toLowerCase(Locale.US).contains("text/html")){
+     if(!DriveLinks.host(new URL(url).getHost()))throw new UserError("The link returned a web page, not the update bundle.");
+     ByteArrayOutputStream page=new ByteArrayOutputStream();try(InputStream in=conn.getInputStream()){byte[] part=new byte[8192];int n;while((n=in.read(part))!=-1){if(page.size()+n>1024*1024)throw new IOException();page.write(part,0,n);}}
+     try{url=normalize(DriveLinks.confirmation(url,new String(page.toByteArray(),"UTF-8")));}catch(Exception e){throw new UserError("Google Drive did not allow the download. Check link sharing or try again later.");}conn.disconnect();continue;
+    }
     try(InputStream in=conn.getInputStream();OutputStream out=new FileOutputStream(dest)){byte[] b=new byte[65536];long total=0;int n;while((n=in.read(b))!=-1){total+=n;if(total>512L*1024*1024)throw new UserError("Bundle exceeds the 512 MB download limit.");out.write(b,0,n);}}return;
    }throw new IOException();
   }finally{if(conn!=null)conn.disconnect();}
