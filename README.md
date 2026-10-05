@@ -5,6 +5,13 @@ A small Android TV / Fire TV receiver for bundles exported by the
 
 ## Preservation preview
 
+**Physical Firestick limitation confirmed:** on AFTMM running Fire OS 6.7.1.1
+(NS6711/5908), the Accessibility settings activity rejects launch with Amazon
+`LAUNCHER_SETTINGS` permission, and ADB attempts to enable the companion service
+do not persist (the service list stays empty). Reinstalling through ADB did not
+resolve it. Automatic preservation is unavailable on this tested configuration.
+No TiviMate restore was performed during this test.
+
 The [0.7.0-rc.1 APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.1/tidyTIVI-companion.apk)
 includes automatic receiver-backup capture and in-place curation merging.
 The stable 0.6.1 APK still uses the replacement flow documented below.
