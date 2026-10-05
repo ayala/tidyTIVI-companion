@@ -3,7 +3,7 @@ import android.app.*;import android.os.*;import android.content.*;import android
 import org.json.*;import java.io.*;import java.net.*;import java.security.*;import java.util.*;import java.util.concurrent.*;import java.util.zip.*;
 
 public class MainActivity extends Activity {
- private TextView status; private Button update,setup; private boolean busy=false;
+ private TextView status; private Button update,setup; private static volatile boolean busy=false;
  private final ExecutorService worker=Executors.newSingleThreadExecutor();
  private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
  private File root(){return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"tidyTIVI");}
@@ -29,7 +29,8 @@ public class MainActivity extends Activity {
   home();show(getPreferences(0).getString("url","").isEmpty()?"Press Connect to get started.":"Link saved. Press Update TiviMate.");
  }
  private void home(){connecting=false;boolean linked=!getPreferences(0).getString("url","").isEmpty();setup.setText(linked?"Connected":"Connect");styleButton(setup,linked?Color.rgb(35,139,77):BLUE);setContentView(home);setup.setFocusableInTouchMode(true);setup.requestFocus();}
- private void show(String message){runOnUiThread(()->status.setText(message));}
+ private volatile String storagePhase="Starting update";
+ private void show(String message){storagePhase=message;runOnUiThread(()->status.setText(message));}
  private void stopPairing(){ui.removeCallbacks(expire);if(pairing!=null){pairing.close();pairing=null;}getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
  @Override public void onBackPressed(){if(connecting){stopPairing();home();}else super.onBackPressed();}
  @Override protected void onStop(){if(connecting){stopPairing();home();}super.onStop();}
@@ -92,9 +93,12 @@ public class MainActivity extends Activity {
    .setPositiveButton("Open TiviMate",(d,w)->{show("Waiting for your new TiviMate backup. Return here after saving it.");openTiviMate();}).show();
  }
  private void begin(){if(busy)return;String url=getPreferences(0).getString("url","");if(url.isEmpty()){configure();return;}if(!permissions())return;
+  try{StorageCleanup.beforeUpdate(getCacheDir(),getFilesDir(),root());}catch(IOException e){show("Cannot clear temporary update files. Check file access and try again.");return;}
   new AlertDialog.Builder(this).setTitle("Update TiviMate").setItems(new String[]{"Keep my settings","Replace everything"},(d,which)->{if(which==0)keepSettings();else replacement();}).setNegativeButton("Cancel",null).show();
  }
- @Override protected void onResume(){super.onResume();if(status==null||busy||!getPreferences(0).getBoolean("awaiting_backup",false))return;
+ @Override protected void onResume(){super.onResume();if(status==null||busy)return;
+  try{StorageCleanup.beforeUpdate(getCacheDir(),getFilesDir(),root());}catch(IOException e){show("Some temporary files could not be cleared. Check file access before updating.");return;}
+  if(!getPreferences(0).getBoolean("awaiting_backup",false))return;
   selectedBackup=recentBackup();if(selectedBackup==null){show("Waiting for a new backup. Older backups won't be used.");return;}
   getPreferences(0).edit().remove("awaiting_backup").commit();startUpdate(true);
  }
@@ -103,11 +107,11 @@ public class MainActivity extends Activity {
   try{getPackageManager().getPackageInfo("ar.tvplayer.tv",0);}catch(Exception e){show("Install and activate TiviMate first, then return here.");return;}
   busy=true;update.setEnabled(false);setup.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   long requestedAt=System.currentTimeMillis();
-  worker.submit(()->{try{install(url,preserve);runOnUiThread(()->{
+  worker.submit(()->{try{StorageCleanup.beforeUpdate(getCacheDir(),getFilesDir(),root());install(url,preserve);runOnUiThread(()->{
    busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
    if(preserve){getPreferences(0).edit().putLong("pending_merge_at",requestedAt).commit();if(selectedBackup!=null)mergeReceiver(Uri.fromFile(selectedBackup),selectedBackup.lastModified());else show("Create a fresh backup in TiviMate, then press Update again.");}
    else{getPreferences(0).edit().remove("pending_merge_at").commit();show("Backup and logos installed. Confirm Restore in TiviMate.");handoff();}
-  });}catch(Exception e){show(e instanceof UserError?e.getMessage():"Update failed. Check the link, connection, free space and file permissions. Your previous installed bundle was kept where possible.");runOnUiThread(()->{busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}});
+  });}catch(Exception e){show(failureMessage(e,"Update failed. Check the link, connection, free space and file permissions. Your previous installed bundle was kept where possible."));runOnUiThread(()->{busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}});
  }
 
  private void mergeReceiver(Uri selected,long modified){
@@ -116,21 +120,21 @@ public class MainActivity extends Activity {
   if(selectedBackup==null||!selectedBackup.isFile()||!selectedBackup.equals(recentBackup())){show("Create a fresh backup in TiviMate, then press Update again.");return;}
   final String usedBackup=backupIdentity(selectedBackup);
   busy=true;setup.setEnabled(false);update.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-  worker.submit(()->{File work=new File(getCacheDir(),"merge-"+UUID.randomUUID());File stage=new File(root(),".merged-"+UUID.randomUUID());
+  worker.submit(()->{File work=new File(getFilesDir(),"merge-"+UUID.randomUUID());File stage=pendingBundle();
    try{
     if(!work.mkdir())throw new IOException();File before=new File(work,"receiver.tmb");show("Reading your current settings and history…");
     try(InputStream in=getContentResolver().openInputStream(selected);OutputStream out=new FileOutputStream(before)){if(in==null)throw new IOException();byte[] b=new byte[65536];long total=0;int n;while((n=in.read(b))!=-1){if((total+=n)>512L*1024*1024)throw new UserError("Backup exceeds 512 MB.");out.write(b,0,n);}}
     File receiverZip=new File(work,"receiver.zip"),incomingZip=new File(work,"incoming.zip"),receiver=new File(work,"receiver"),incoming=new File(work,"incoming");
-    TmbCodec.decrypt(before,receiverZip);TmbCodec.unpack(receiverZip,receiver);TmbCodec.decrypt(new File(pendingBundle(),"tidytivi.tmb"),incomingZip);TmbCodec.unpack(incomingZip,incoming);
+    TmbCodec.decrypt(before,receiverZip);TmbCodec.unpack(receiverZip,receiver);remove(receiverZip);remove(before);TmbCodec.decrypt(new File(pendingBundle(),"tidytivi.tmb"),incomingZip);TmbCodec.unpack(incomingZip,incoming);remove(incomingZip);
     show("Applying curation while keeping your favorites and history…");JSONObject incomingManifest=new JSONObject(new String(read(new File(pendingBundle(),"manifest.json")),"UTF-8"));File oldManifestFile=new File(root(),"current/manifest.json");JSONObject oldManifest=oldManifestFile.isFile()?new JSONObject(new String(read(oldManifestFile),"UTF-8")):new JSONObject();
-    int count=CurationMerge.merge(new File(receiver,"TvPlayer.db"),new File(incoming,"TvPlayer.db"),oldManifest,incomingManifest);
-    show("Preparing your updated backup…");File mergedZip=new File(work,"merged.zip"),merged=new File(work,"merged.tmb");TmbCodec.pack(receiver,mergedZip);TmbCodec.encrypt(mergedZip,merged);
+    int count=CurationMerge.merge(new File(receiver,"TvPlayer.db"),new File(incoming,"TvPlayer.db"),oldManifest,incomingManifest);remove(incoming);
+    show("Preparing your updated backup…");File mergedZip=new File(work,"merged.zip"),merged=new File(work,"merged.tmb");TmbCodec.pack(receiver,mergedZip);remove(receiver);TmbCodec.encrypt(mergedZip,merged);remove(mergedZip);
     // Authenticate the final result before exposing it to TiviMate.
-    show("Checking the updated backup…");TmbCodec.decrypt(merged,new File(work,"verified.zip"));copy(before,new File(getFilesDir(),"receiver-before-update.tmb"));
-    if(!stage.mkdir())throw new IOException("Cannot stage the merged update.");copyMissing(pendingBundle(),stage);try(OutputStream manifestOut=new FileOutputStream(new File(stage,"manifest.json"))){manifestOut.write(incomingManifest.toString().getBytes("UTF-8"));}copy(merged,new File(stage,"tidytivi.tmb"));copyMissing(new File(root(),"current"),stage);refreshManifest(stage);verify(stage);activate(stage);remove(pendingBundle());
+    show("Checking the updated backup…");File verified=new File(work,"verified.zip");TmbCodec.decrypt(merged,verified);remove(verified);
+    try(OutputStream manifestOut=new FileOutputStream(new File(stage,"manifest.json"))){manifestOut.write(incomingManifest.toString().getBytes("UTF-8"));}remove(new File(stage,"tidytivi.tmb"));moveFile(merged,new File(stage,"tidytivi.tmb"));copyMissing(new File(root(),"current"),stage);refreshManifest(stage);verify(stage);activate(stage);remove(pendingBundle());
     getPreferences(0).edit().remove("pending_merge_at").putString("used_local_backup",usedBackup).commit();runOnUiThread(()->{show("Ready: "+count+" channels with your settings and history. Confirm Restore in TiviMate.");handoff();});
-   }catch(Exception e){show(e instanceof IOException?e.getMessage():"Could not merge this backup. Your existing TiviMate setup was not restored or replaced.");}
-   finally{try{remove(work);remove(stage);}catch(Exception ignored){}runOnUiThread(()->{busy=false;setup.setEnabled(true);update.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}
+   }catch(Exception e){show(failureMessage(e,"Could not merge this backup. Your existing TiviMate setup was not restored or replaced."));}
+   finally{StorageCleanup.quietRemove(work);StorageCleanup.quietRemove(stage);runOnUiThread(()->{busy=false;setup.setEnabled(true);update.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}
   });
  }
  private static void copyMissing(File old,File stage)throws Exception{
@@ -142,14 +146,21 @@ public class MainActivity extends Activity {
   manifest.put("files",files).put("receiver_merge",true);try(OutputStream out=new FileOutputStream(f)){out.write(manifest.toString(2).getBytes("UTF-8"));}
  }
 
+ private String failureMessage(Exception failure,String fallback){
+  for(Throwable e=failure;e!=null;e=e.getCause()){
+   String message=String.valueOf(e.getMessage()).toLowerCase(Locale.US);
+   if(message.contains("no space")||message.contains("enospc")||message.contains("sqlite_full")||message.contains("database or disk is full")){android.util.Log.e("tidyTIVIStorage","phase="+storagePhase+"; type="+e.getClass().getSimpleName()+"; free="+getFilesDir().getUsableSpace()+"; error="+e.getMessage());return "Not enough storage to complete the update. Temporary files will be cleared. Free more internal storage and try again. Your manual TiviMate backup is kept.";}
+  }
+  return failure instanceof UserError?failure.getMessage():fallback;
+ }
  static class UserError extends IOException{UserError(String text){super(text);}}
  private void install(String url,boolean preserve)throws Exception{
   File base=root();if(!base.exists()&&!base.mkdirs())throw new UserError("Cannot create the download folder. Allow file access.");
-  File stage=new File(base,".incoming-"+UUID.randomUUID());if(!stage.mkdir())throw new IOException();File zip=new File(getCacheDir(),"update.zip");
-  try{show("Downloading the latest bundle…");download(url,zip);show("Verifying backup and logos…");extract(zip,stage);verify(stage);
+  File stage=new File(base,".incoming-"+UUID.randomUUID());if(!stage.mkdir())throw new IOException();File zip=new File(getFilesDir(),"update.zip");
+  try{show("Downloading the latest bundle…");download(url,zip);show("Verifying backup and logos…");extract(zip,stage);remove(zip);verify(stage);
    if(preserve){File pending=pendingBundle();remove(pending);if(!stage.renameTo(pending))throw new IOException();return;}
    activate(stage);
-  }finally{remove(stage);zip.delete();}
+  }finally{StorageCleanup.quietRemove(stage);StorageCleanup.quietRemove(zip);}
  }
  private void activate(File stage)throws Exception{
    File base=root();
@@ -211,6 +222,7 @@ public class MainActivity extends Activity {
  }
  static void list(File root,File dir,Set<String> files)throws Exception{File[] all=dir.listFiles();if(all==null)throw new IOException();for(File f:all)if(f.isDirectory())list(root,f,files);else files.add(root.toURI().relativize(f.toURI()).getPath());}
  static void images(File dir,List<String> paths){File[] all=dir.listFiles();if(all==null)return;for(File f:all)if(f.isDirectory())images(f,paths);else if(f.getName().matches("(?i).*\\.(png|jpg|jpeg|webp)$"))paths.add(f.getAbsolutePath());}
+ static void moveFile(File a,File b)throws Exception{if(!a.renameTo(b)){copy(a,b);remove(a);}}
  static void copy(File a,File b)throws Exception{try(InputStream in=new FileInputStream(a);OutputStream out=new FileOutputStream(b)){byte[] bytes=new byte[65536];int n;while((n=in.read(bytes))!=-1)out.write(bytes,0,n);}}
  static void remove(File f)throws IOException{if(!f.exists())return;if(f.isDirectory()){File[] all=f.listFiles();if(all==null)throw new IOException();for(File c:all)remove(c);}if(!f.delete())throw new IOException();}
  private void handoff(){try{Intent intent=new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse("content://ayala.tidytivi.companion.backups/tidytivi-"+UUID.randomUUID().toString().replace("-","")+".tmb"),"application/octet-stream").setPackage("ar.tvplayer.tv").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(intent);}catch(Exception e){show("Bundle installed. Open TiviMate → Settings → General → Restore data and select Download/tidyTIVI/current/tidytivi.tmb.");}}

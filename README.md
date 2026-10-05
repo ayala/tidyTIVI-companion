@@ -1,11 +1,11 @@
-# tidyTIVI companion 0.7.0-rc.2
+# tidyTIVI companion 0.7.0-rc.3
 
 A small Android TV / Fire TV receiver for bundles exported by the
 [tidyTIVI Dispatcharr plugin](https://github.com/ayala/tidyTIVI).
 
-## Preservation preview: 0.7.0-rc.2
+## Preservation preview: 0.7.0-rc.3
 
-[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.2/tidyTIVI-companion.apk).
+[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.3/tidyTIVI-companion.apk).
 The latest-release link still installs stable 0.6.1, which replaces receiver data.
 
 Press **Update TiviMate** and choose each time:
@@ -34,6 +34,34 @@ Both live TV and VOD use the exported account. Matching native provider IDs keep
 receiver favorites and watch progress. Unavailable titles keep stored history
 but TiviMate may hide them. Different providers' IDs are not interchangeable.
 The tested backup format is TiviMate 5.3.3, schema 60.
+
+### Storage use
+
+rc.3 clears abandoned companion download/merge files on every launch and idle
+return to the app, as well as before an update, including
+leftovers from interrupted attempts. During a merge it discards decrypted ZIPs
+and extracted databases as soon as each stage no longer needs them, and reuses
+the downloaded bundle directory rather than copying the whole bundle again.
+Large transaction files live in app-private files storage rather than Android's
+reclaimable cache. Temporary cleanup is also attempted after failures. It no longer keeps a second
+private copy of the user's pre-update backup.
+
+Your manually saved TiviMate backups and active setup are not deleted. The final
+restore file and installed logos remain available to TiviMate. Keep mode still
+needs room for two expanded databases and SQLite's working files during the
+merge; a small compressed backup does not imply small workspace requirements.
+If storage is exhausted, the app gives a specific storage error.
+
+rc.3's cleanup and progressive codec tests passed locally, and the signed APK
+build passed. On the physical AFTMM Firestick, cleanup removed a 135 MB abandoned
+bundle. A real Dropbox download and fresh-backup merge reached TiviMate's Restore
+confirmation after moving large scratch files out of Android cache. Temporary
+storage was released afterward. Restore was not confirmed during this test.
+A launch-cleanup test on the Firestick removed a synthetic abandoned directory
+while retaining the current bundle and saved connection. The resulting native
+backup passed authentication, ZIP CRC and SQLite integrity checks.
+Cleanup skips an active download or merge, so opening the app cannot delete
+files that its worker is still using.
 
 ### Verification
 

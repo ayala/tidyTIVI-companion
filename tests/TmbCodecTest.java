@@ -7,6 +7,13 @@ public class TmbCodecTest {
    File original=new File(root,"original.zip");try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(original))){z.putNextEntry(new ZipEntry("TvPlayer.db"));z.write("synthetic database".getBytes("UTF-8"));z.closeEntry();}
    File backup=new File(root,"backup.tmb"),decoded=new File(root,"decoded.zip");TmbCodec.encrypt(original,backup);TmbCodec.decrypt(backup,decoded);
    if(!java.util.Arrays.equals(Files.readAllBytes(original.toPath()),Files.readAllBytes(decoded.toPath())))throw new AssertionError("round trip");
+   File unpacked=new File(root,"unpacked"),repacked=new File(root,"repacked.zip"),finalBackup=new File(root,"final.tmb"),verified=new File(root,"verified.zip");
+   TmbCodec.unpack(decoded,unpacked);Files.delete(decoded.toPath());
+   TmbCodec.pack(unpacked,repacked);StorageCleanup.remove(unpacked);
+   TmbCodec.encrypt(repacked,finalBackup);Files.delete(repacked.toPath());
+   TmbCodec.decrypt(finalBackup,verified);
+   try(ZipFile z=new ZipFile(verified)){if(!new String(z.getInputStream(z.getEntry("TvPlayer.db")).readAllBytes(),"UTF-8").equals("synthetic database"))throw new AssertionError("progressive cleanup changed payload");}
+   Files.delete(verified.toPath());
    try(RandomAccessFile f=new RandomAccessFile(backup,"rw")){f.seek(40);f.write(f.read()^1);}
    try{TmbCodec.decrypt(backup,decoded);throw new AssertionError("accepted corruption");}catch(IOException expected){}
    if(decoded.exists())throw new AssertionError("partial plaintext left behind");
