@@ -1,0 +1,1 @@
+<resources><string name="backup_service_description">When you press Update TiviMate, tidyTIVI uses this permission to create a fresh TiviMate backup automatically. It merges your curation while preserving favorites, history and settings. It only operates in TiviMate during an update. Restore confirmation remains yours.</string></resources>

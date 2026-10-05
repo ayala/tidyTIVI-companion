@@ -1,9 +1,39 @@
-# tidyTIVI companion 0.6.1
+# tidyTIVI companion 0.7.0-rc.1
 
 A small Android TV / Fire TV receiver for bundles exported by the
 [tidyTIVI Dispatcharr plugin](https://github.com/ayala/tidyTIVI).
 
-## Install and update
+## Preservation preview
+
+The [0.7.0-rc.1 APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.1/tidyTIVI-companion.apk)
+includes automatic receiver-backup capture and in-place curation merging.
+The stable 0.6.1 APK still uses the replacement flow documented below.
+The latest-release link does not install this preview.
+
+The preview requires one-time enabling of **tidyTIVI automatic backup** in
+Android Accessibility settings. Update then downloads the bundle, creates a
+fresh backup through TiviMate's UI, merges curation while retaining personal
+state, and opens the native Restore confirmation. There is no manual backup
+selection. It currently targets TiviMate 5.3.3 with English menus. Firestick
+accessibility setup has not yet been verified. Updates use the account supplied in the export. Matching provider VOD records
+retain their receiver IDs and personal state; an ambiguous provider match stops
+the update. Live and VOD use the account supplied in the export. Unavailable
+titles keep their stored history but are hidden by TiviMate; history cannot be
+translated between unrelated provider IDs.
+
+Verified on stock Android TV with TiviMate 5.3.3: real Dropbox download, automatic
+fresh backup, merge, native Restore, live playback/EPG, movie playback and series
+episode playback after an account switch. IDs, favorites, enable flags, movie
+and episode progress, and all preference files survived the database audit.
+A subsequent full update retained newly created movie and episode history;
+TiviMate displayed Resume, Remove from My list, and Resume S1 E1 after restore.
+One series failed with an emulator video-decoder error; another played.
+Physical Firestick preservation and accessibility setup remain unverified.
+
+Android regression test: `python3 tests/run_android_merge.py emulator-5560`.
+It uses synthetic data in a separate test APK and the sibling plugin checkout.
+
+## Stable 0.6.1: install and update
 
 1. Download [the APK](https://github.com/ayala/tidyTIVI-companion/releases/latest/download/tidyTIVI-companion.apk) and sideload it onto an Android-based Fire TV or Android TV device.
 2. Install and activate TiviMate separately. This release was tested with TiviMate 5.3.3.

@@ -23,8 +23,7 @@ public class MainActivity extends Activity {
   home=new LinearLayout(this);home.setOrientation(1);home.setGravity(Gravity.CENTER);home.setPadding(dp(32),dp(14),dp(32),dp(14));home.setBackgroundColor(Color.rgb(15,22,32));
   ImageView logo=new ImageView(this);logo.setImageResource(ayala.tidytivi.companion.R.drawable.logo);
   logo.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,android.graphics.Outline o){o.setRoundRect(0,0,v.getWidth(),v.getHeight(),dp(16));}});logo.setClipToOutline(true);home.addView(logo,new LinearLayout.LayoutParams(dp(100),dp(100)));
-  TextView title=label("Your TiviMate setup, up to date",26);title.setPadding(0,dp(15),0,dp(6));home.addView(title);
-  setup=button("Connect");addButton(home,setup);setup.setOnClickListener(v->configure());
+  setup=button("Connect");addButton(home,setup);((LinearLayout.LayoutParams)setup.getLayoutParams()).topMargin=dp(28);setup.setOnClickListener(v->configure());
   update=button("Update TiviMate");addButton(home,update);update.setOnClickListener(v->begin());
   status=label("",17);status.setTextColor(Color.LTGRAY);status.setPadding(0,dp(18),0,0);home.addView(status,new LinearLayout.LayoutParams(-1,-2));
   home();show(getPreferences(0).getString("url","").isEmpty()?"Press Connect to get started.":"Link saved. Press Update TiviMate.");
@@ -73,17 +72,74 @@ public class MainActivity extends Activity {
   if(Build.VERSION.SDK_INT<30 && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},1);show("Allow file access, then press Update again.");return false;}
   return true;
  }
- private void begin(){if(busy)return;String url=getPreferences(0).getString("url","");if(url.isEmpty()){configure();return;}if(!permissions())return;
+ private void begin(){if(busy)return;
+  if(getPreferences(0).getLong("pending_merge_at",0)>0 && pendingBundle().isDirectory()){automaticBackup();return;}
+  if(new File(root(),"current/tidytivi.tmb").isFile()){if(allowAutomaticBackup())startUpdate(true);return;}
+  new AlertDialog.Builder(this).setTitle("Set up this device?").setMessage("Initial setup replaces existing TiviMate data. Later updates preserve your settings and history.").setNegativeButton("Cancel",null).setPositiveButton("Set up",(d,w)->startUpdate(false)).show();
+ }
+ private boolean allowAutomaticBackup(){
+  if(BackupService.available())return true;
+  new AlertDialog.Builder(this).setTitle("Keep your settings automatically")
+   .setMessage("Enable tidyTIVI automatic backup in Accessibility once. Each update can then keep your favorites, history and settings without a manual backup. tidyTIVI only operates TiviMate during an update.")
+   .setNegativeButton("Cancel",null).setPositiveButton("Open settings",(d,w)->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Exception e){show("This device does not expose accessibility service settings. Automatic updates are unavailable; no restore was performed.");}}).show();return false;
+ }
+ private void automaticBackup(){if(!allowAutomaticBackup())return;show("Saving your current TiviMate settings automatically…");BackupService.request();}
+ @Override protected void onResume(){super.onResume();if(status==null||busy)return;
+  String ready=getPreferences(0).getString("auto_backup_ready",""),error=getPreferences(0).getString("auto_backup_error","");
+  if(!ready.isEmpty()){getPreferences(0).edit().remove("auto_backup_ready").commit();File f=new File(ready);mergeReceiver(Uri.fromFile(f),f.lastModified());}
+  else if(!error.isEmpty()){getPreferences(0).edit().remove("auto_backup_error").commit();show(error);}
+ }
+ private File pendingBundle(){return new File(root(),".pending-curation");}
+ private void startUpdate(boolean preserve){if(busy)return;String url=getPreferences(0).getString("url","");if(url.isEmpty()){configure();return;}if(!permissions())return;
   try{getPackageManager().getPackageInfo("ar.tvplayer.tv",0);}catch(Exception e){show("Install and activate TiviMate first, then return here.");return;}
   busy=true;update.setEnabled(false);setup.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-  worker.submit(()->{try{install(url);runOnUiThread(()->{show("Backup and logos installed. Confirm Restore in TiviMate.");handoff();});}catch(Exception e){show(e instanceof UserError?e.getMessage():"Update failed. Check the link, connection, free space and file permissions. Your previous installed bundle was kept where possible.");}
+  long requestedAt=System.currentTimeMillis();
+  worker.submit(()->{try{install(url,preserve);runOnUiThread(()->{if(preserve){getPreferences(0).edit().putLong("pending_merge_at",requestedAt).commit();show("Download ready. Saving your current settings…");automaticBackup();}else{show("Backup and logos installed. Confirm Restore in TiviMate.");handoff();}});}catch(Exception e){show(e instanceof UserError?e.getMessage():"Update failed. Check the link, connection, free space and file permissions. Your previous installed bundle was kept where possible.");}
    finally{runOnUiThread(()->{busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}});
  }
+
+ private void mergeReceiver(Uri selected,long modified){
+  if(busy)return;long requested=getPreferences(0).getLong("pending_merge_at",0);
+  if(requested==0||!pendingBundle().isDirectory()){show("Download the update again first.");return;}
+  if(modified<requested-2000){show("Select a fresh backup created after downloading this update. Older backups can lose recent history.");return;}
+  busy=true;setup.setEnabled(false);update.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+  worker.submit(()->{File work=new File(getCacheDir(),"merge-"+UUID.randomUUID());File stage=new File(root(),".merged-"+UUID.randomUUID());
+   try{
+    if(!work.mkdir())throw new IOException();File before=new File(work,"receiver.tmb");show("Reading your current settings and history…");
+    try(InputStream in=getContentResolver().openInputStream(selected);OutputStream out=new FileOutputStream(before)){if(in==null)throw new IOException();byte[] b=new byte[65536];long total=0;int n;while((n=in.read(b))!=-1){if((total+=n)>512L*1024*1024)throw new UserError("Backup exceeds 512 MB.");out.write(b,0,n);}}
+    File receiverZip=new File(work,"receiver.zip"),incomingZip=new File(work,"incoming.zip"),receiver=new File(work,"receiver"),incoming=new File(work,"incoming");
+    TmbCodec.decrypt(before,receiverZip);TmbCodec.unpack(receiverZip,receiver);TmbCodec.decrypt(new File(pendingBundle(),"tidytivi.tmb"),incomingZip);TmbCodec.unpack(incomingZip,incoming);
+    show("Applying curation while keeping your favorites and history…");JSONObject incomingManifest=new JSONObject(new String(read(new File(pendingBundle(),"manifest.json")),"UTF-8"));File oldManifestFile=new File(root(),"current/manifest.json");JSONObject oldManifest=oldManifestFile.isFile()?new JSONObject(new String(read(oldManifestFile),"UTF-8")):new JSONObject();
+    int count=CurationMerge.merge(new File(receiver,"TvPlayer.db"),new File(incoming,"TvPlayer.db"),oldManifest,incomingManifest);
+    show("Preparing your updated backup…");File mergedZip=new File(work,"merged.zip"),merged=new File(work,"merged.tmb");TmbCodec.pack(receiver,mergedZip);TmbCodec.encrypt(mergedZip,merged);
+    // Authenticate the final result before exposing it to TiviMate.
+    show("Checking the updated backup…");TmbCodec.decrypt(merged,new File(work,"verified.zip"));copy(before,new File(getFilesDir(),"receiver-before-update.tmb"));
+    if(!stage.mkdir())throw new IOException("Cannot stage the merged update.");copyMissing(pendingBundle(),stage);try(OutputStream manifestOut=new FileOutputStream(new File(stage,"manifest.json"))){manifestOut.write(incomingManifest.toString().getBytes("UTF-8"));}copy(merged,new File(stage,"tidytivi.tmb"));copyMissing(new File(root(),"current"),stage);refreshManifest(stage);verify(stage);activate(stage);remove(pendingBundle());
+    getPreferences(0).edit().remove("pending_merge_at").commit();runOnUiThread(()->{show("Ready: "+count+" channels with your settings and history. Confirm Restore in TiviMate.");handoff();});
+   }catch(Exception e){show(e instanceof IOException?e.getMessage():"Could not merge this backup. Your existing TiviMate setup was not restored or replaced.");}
+   finally{try{remove(work);remove(stage);}catch(Exception ignored){}runOnUiThread(()->{busy=false;setup.setEnabled(true);update.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}
+  });
+ }
+ private static void copyMissing(File old,File stage)throws Exception{
+  File[] entries=old.listFiles();if(entries==null)return;for(File file:entries){File dest=new File(stage,file.getName());if(file.isDirectory()){if(!dest.exists()&&!dest.mkdirs())throw new IOException();if(dest.isDirectory())copyMissing(file,dest);}else if(!dest.exists())copy(file,dest);}
+ }
+ private static void refreshManifest(File stage)throws Exception{
+  File f=new File(stage,"manifest.json");JSONObject manifest=new JSONObject(new String(read(f),"UTF-8"));JSONObject files=new JSONObject();Set<String> paths=new HashSet<>();list(stage,stage,paths);
+  for(String path:paths)if(!path.equals("manifest.json")){File item=new File(stage,path);files.put(path,new JSONObject().put("bytes",item.length()).put("sha256",hash(item)));}
+  manifest.put("files",files).put("receiver_merge",true);try(OutputStream out=new FileOutputStream(f)){out.write(manifest.toString(2).getBytes("UTF-8"));}
+ }
+
  static class UserError extends IOException{UserError(String text){super(text);}}
- private void install(String url)throws Exception{
+ private void install(String url,boolean preserve)throws Exception{
   File base=root();if(!base.exists()&&!base.mkdirs())throw new UserError("Cannot create the download folder. Allow file access.");
   File stage=new File(base,".incoming-"+UUID.randomUUID());if(!stage.mkdir())throw new IOException();File zip=new File(getCacheDir(),"update.zip");
   try{show("Downloading the latest bundle…");download(url,zip);show("Verifying backup and logos…");extract(zip,stage);verify(stage);
+   if(preserve){File pending=pendingBundle();remove(pending);if(!stage.renameTo(pending))throw new IOException();return;}
+   activate(stage);
+  }finally{remove(stage);zip.delete();}
+ }
+ private void activate(File stage)throws Exception{
+   File base=root();
    File pending=new File(getFilesDir(),"backup.pending");copy(new File(stage,"tidytivi.tmb"),pending);
    File current=new File(base,"current"),previous=new File(base,"previous");remove(previous);
    File backup=new File(getFilesDir(),"tidytivi.tmb"),oldBackup=new File(getFilesDir(),"backup.previous");remove(oldBackup);
@@ -101,7 +157,6 @@ public class MainActivity extends Activity {
    ArrayList<String> paths=new ArrayList<>();images(new File(current,"logos"),paths);
    if(!paths.isEmpty()){CountDownLatch scanned=new CountDownLatch(paths.size());MediaScannerConnection.scanFile(this,paths.toArray(new String[0]),null,(p,u)->scanned.countDown());scanned.await(45,TimeUnit.SECONDS);}
    remove(previous);show("Installed "+paths.size()+" logo files.");
-  }finally{remove(stage);zip.delete();}
  }
  private void download(String input,File dest)throws Exception{
   String url=normalize(input);HttpURLConnection conn=null;java.net.CookieManager cookies=new java.net.CookieManager(null,java.net.CookiePolicy.ACCEPT_ORIGINAL_SERVER);
