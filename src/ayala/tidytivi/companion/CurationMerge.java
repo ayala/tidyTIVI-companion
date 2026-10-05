@@ -52,13 +52,15 @@ final class CurationMerge {
    src=SQLiteDatabase.openDatabase(incoming.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY);
    if(db.getVersion()!=60||src.getVersion()!=60)throw new IOException("Only TiviMate 5.3.3 backups are supported for this update.");
    Map<String,ContentValues> incomingProfiles=playlists(src),existingProfiles=playlists(db);
-   if(incomingProfiles.isEmpty()||!existingProfiles.keySet().containsAll(incomingProfiles.keySet()))throw new IOException("This backup must contain the existing tidyTIVI profile playlists. No changes were restored.");
+   if(incomingProfiles.isEmpty()||existingProfiles.isEmpty())throw new IOException("This backup must contain the existing tidyTIVI profile playlists. No changes were restored.");
    db.execSQL("ATTACH DATABASE ? AS incoming_vod",new Object[]{incoming.getAbsolutePath()});
    JSONArray nextMappings=new JSONArray();JSONArray previousMappings=oldManifest.optJSONArray("group_mappings");if(previousMappings!=null)for(int n=0;n<previousMappings.length();n++){JSONObject entry=previousMappings.getJSONObject(n);if(!incomingProfiles.containsKey(entry.getString("playlist")))nextMappings.put(entry);}
    db.setForeignKeyConstraintsEnabled(true);db.beginTransactionNonExclusive();int count=0;Map<Long,Long> sources=new HashMap<>();
    try{
     for(String key:incomingProfiles.keySet()){
-     ContentValues ip=incomingProfiles.get(key),rp=existingProfiles.get(key);long iid=id(ip),pid=id(rp);
+     ContentValues ip=incomingProfiles.get(key),rp=existingProfiles.get(key);
+     if(rp==null){ContentValues added=copy(ip);long addedId=db.insertOrThrow("playlists",null,added);rp=new ContentValues(added);rp.put("id",addedId);existingProfiles.put(key,rp);}
+     long iid=id(ip),pid=id(rp);
      Map<String,ContentValues> incomingChannels=channels(src,iid),oldChannels=channels(db,pid);
      for(String n:incomingChannels.keySet())if(!n.matches("tidytivi-\\d+"))throw new IOException("Unsupported channel identities.");
      List<ContentValues> oldGroups=rows(db,"SELECT * FROM channel_groups WHERE playlist_id=?",pid);Map<Long,Set<String>> oldMembers=new HashMap<>();for(ContentValues g:oldGroups)oldMembers.put(id(g),members(db,id(g)));

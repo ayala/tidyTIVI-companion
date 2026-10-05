@@ -20,7 +20,7 @@ public class MainActivity extends Activity {
  private void addButton(LinearLayout layout,Button b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(320),dp(48));p.topMargin=dp(10);layout.addView(b,p);}
  private TextView label(String text,int size){TextView t=new TextView(this);t.setText(text);t.setTextSize(size);t.setTextColor(Color.WHITE);t.setGravity(Gravity.CENTER);return t;}
  public void onCreate(Bundle state){super.onCreate(state);
-  home=new LinearLayout(this);home.setOrientation(1);home.setGravity(Gravity.CENTER);home.setPadding(dp(32),dp(14),dp(32),dp(14));home.setBackgroundColor(Color.rgb(15,22,32));
+  home=new LinearLayout(this);home.setOrientation(1);home.setGravity(Gravity.CENTER);home.setPadding(dp(32),dp(14),dp(32),dp(14));home.setBackgroundColor(Color.rgb(19,22,25));
   ImageView logo=new ImageView(this);logo.setImageResource(ayala.tidytivi.companion.R.drawable.logo);
   logo.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,android.graphics.Outline o){o.setRoundRect(0,0,v.getWidth(),v.getHeight(),dp(16));}});logo.setClipToOutline(true);home.addView(logo,new LinearLayout.LayoutParams(dp(100),dp(100)));
   setup=button("Connect");addButton(home,setup);((LinearLayout.LayoutParams)setup.getLayoutParams()).topMargin=dp(28);setup.setOnClickListener(v->configure());
@@ -40,7 +40,7 @@ public class MainActivity extends Activity {
   if(candidates.isEmpty())throw new IOException();return candidates.get(0);
  }
  private void configure(){if(busy)return;stopPairing();connecting=true;
-  LinearLayout content=new LinearLayout(this);content.setOrientation(1);content.setGravity(Gravity.CENTER);content.setPadding(dp(20),dp(12),dp(20),dp(12));content.setBackgroundColor(Color.rgb(15,22,32));
+  LinearLayout content=new LinearLayout(this);content.setOrientation(1);content.setGravity(Gravity.CENTER);content.setPadding(dp(20),dp(12),dp(20),dp(12));content.setBackgroundColor(Color.rgb(19,22,25));
   TextView heading=label("Scan to connect",25);content.addView(heading);
   TextView hint=label("Phone + Firestick on the same Wi-Fi",14);hint.setPadding(0,dp(10),0,dp(5));
   try{String page;try(InputStream in=getAssets().open("pairing.html");ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] bytes=new byte[4096];int n;while((n=in.read(bytes))!=-1)out.write(bytes,0,n);page=out.toString("UTF-8");}
@@ -72,36 +72,49 @@ public class MainActivity extends Activity {
   if(Build.VERSION.SDK_INT<30 && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},1);show("Allow file access, then press Update again.");return false;}
   return true;
  }
- private void begin(){if(busy)return;
-  if(getPreferences(0).getLong("pending_merge_at",0)>0 && pendingBundle().isDirectory()){automaticBackup();return;}
-  if(new File(root(),"current/tidytivi.tmb").isFile()){if(allowAutomaticBackup())startUpdate(true);return;}
-  new AlertDialog.Builder(this).setTitle("Set up this device?").setMessage("Initial setup replaces existing TiviMate data. Later updates preserve your settings and history.").setNegativeButton("Cancel",null).setPositiveButton("Set up",(d,w)->startUpdate(false)).show();
+ private File selectedBackup;
+ private String backupIdentity(File f){return f.getName()+":"+f.lastModified()+":"+f.length();}
+ private File[] localBackups(){File[] files=Environment.getExternalStorageDirectory().listFiles(f->f.isFile()&&f.getName().startsWith("TiviMate_backup_")&&f.getName().endsWith(".tmb"));return files==null?new File[0]:files;}
+ private File recentBackup(){
+  long started=getPreferences(0).getLong("keep_started",0);if(started==0)return null;
+  Set<String> before=getPreferences(0).getStringSet("backups_before",Collections.emptySet());File newest=null;
+  for(File f:localBackups())if(!before.contains(f.getName())&&f.length()>100&&f.lastModified()>=(started/1000)*1000&&(newest==null||f.lastModified()>newest.lastModified()))newest=f;
+  return newest;
  }
- private boolean allowAutomaticBackup(){
-  if(BackupService.available())return true;
-  new AlertDialog.Builder(this).setTitle("Keep your settings automatically")
-   .setMessage("Enable tidyTIVI automatic backup in Accessibility once. Each update can then keep your favorites, history and settings without a manual backup. tidyTIVI only operates TiviMate during an update.")
-   .setNegativeButton("Cancel",null).setPositiveButton("Open settings",(d,w)->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Exception e){show("This device does not expose accessibility service settings. Automatic updates are unavailable; no restore was performed.");}}).show();return false;
+ private void openTiviMate(){Intent launch=getPackageManager().getLeanbackLaunchIntentForPackage("ar.tvplayer.tv");if(launch==null){show("Install and activate TiviMate first.");return;}startActivity(launch);}
+ private void replacement(){new AlertDialog.Builder(this).setTitle("Replace everything?").setMessage("Existing settings, favorites and watch progress will be overwritten with the exported setup.").setNegativeButton("Cancel",null).setPositiveButton("Replace",(d,w)->{getPreferences(0).edit().remove("awaiting_backup").remove("keep_started").commit();selectedBackup=null;startUpdate(false);}).show();}
+ private void keepSettings(){
+  Set<String> before=new HashSet<>();for(File f:localBackups())before.add(f.getName());
+  getPreferences(0).edit().putLong("keep_started",System.currentTimeMillis()).putStringSet("backups_before",before).putBoolean("awaiting_backup",true).commit();
+  new AlertDialog.Builder(this).setTitle("Create a fresh backup")
+   .setMessage("Keep your settings, favorites and watch progress. In TiviMate, choose:\n\nSettings → General → Back up data → Internal shared storage → Save\n\nThen return here. Older backups won't be used.")
+   .setNegativeButton("Cancel",(d,w)->getPreferences(0).edit().remove("awaiting_backup").commit()).setOnCancelListener(d->getPreferences(0).edit().remove("awaiting_backup").commit())
+   .setPositiveButton("Open TiviMate",(d,w)->{show("Waiting for your new TiviMate backup. Return here after saving it.");openTiviMate();}).show();
  }
- private void automaticBackup(){if(!allowAutomaticBackup())return;show("Saving your current TiviMate settings automatically…");BackupService.request();}
- @Override protected void onResume(){super.onResume();if(status==null||busy)return;
-  String ready=getPreferences(0).getString("auto_backup_ready",""),error=getPreferences(0).getString("auto_backup_error","");
-  if(!ready.isEmpty()){getPreferences(0).edit().remove("auto_backup_ready").commit();File f=new File(ready);mergeReceiver(Uri.fromFile(f),f.lastModified());}
-  else if(!error.isEmpty()){getPreferences(0).edit().remove("auto_backup_error").commit();show(error);}
+ private void begin(){if(busy)return;String url=getPreferences(0).getString("url","");if(url.isEmpty()){configure();return;}if(!permissions())return;
+  new AlertDialog.Builder(this).setTitle("Update TiviMate").setItems(new String[]{"Keep my settings","Replace everything"},(d,which)->{if(which==0)keepSettings();else replacement();}).setNegativeButton("Cancel",null).show();
+ }
+ @Override protected void onResume(){super.onResume();if(status==null||busy||!getPreferences(0).getBoolean("awaiting_backup",false))return;
+  selectedBackup=recentBackup();if(selectedBackup==null){show("Waiting for a new backup. Older backups won't be used.");return;}
+  getPreferences(0).edit().remove("awaiting_backup").commit();startUpdate(true);
  }
  private File pendingBundle(){return new File(root(),".pending-curation");}
  private void startUpdate(boolean preserve){if(busy)return;String url=getPreferences(0).getString("url","");if(url.isEmpty()){configure();return;}if(!permissions())return;
   try{getPackageManager().getPackageInfo("ar.tvplayer.tv",0);}catch(Exception e){show("Install and activate TiviMate first, then return here.");return;}
   busy=true;update.setEnabled(false);setup.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   long requestedAt=System.currentTimeMillis();
-  worker.submit(()->{try{install(url,preserve);runOnUiThread(()->{if(preserve){getPreferences(0).edit().putLong("pending_merge_at",requestedAt).commit();show("Download ready. Saving your current settings…");automaticBackup();}else{show("Backup and logos installed. Confirm Restore in TiviMate.");handoff();}});}catch(Exception e){show(e instanceof UserError?e.getMessage():"Update failed. Check the link, connection, free space and file permissions. Your previous installed bundle was kept where possible.");}
-   finally{runOnUiThread(()->{busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}});
+  worker.submit(()->{try{install(url,preserve);runOnUiThread(()->{
+   busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+   if(preserve){getPreferences(0).edit().putLong("pending_merge_at",requestedAt).commit();if(selectedBackup!=null)mergeReceiver(Uri.fromFile(selectedBackup),selectedBackup.lastModified());else show("Create a fresh backup in TiviMate, then press Update again.");}
+   else{getPreferences(0).edit().remove("pending_merge_at").commit();show("Backup and logos installed. Confirm Restore in TiviMate.");handoff();}
+  });}catch(Exception e){show(e instanceof UserError?e.getMessage():"Update failed. Check the link, connection, free space and file permissions. Your previous installed bundle was kept where possible.");runOnUiThread(()->{busy=false;update.setEnabled(true);setup.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}});
  }
 
  private void mergeReceiver(Uri selected,long modified){
   if(busy)return;long requested=getPreferences(0).getLong("pending_merge_at",0);
   if(requested==0||!pendingBundle().isDirectory()){show("Download the update again first.");return;}
-  if(modified<requested-2000){show("Select a fresh backup created after downloading this update. Older backups can lose recent history.");return;}
+  if(selectedBackup==null||!selectedBackup.isFile()||!selectedBackup.equals(recentBackup())){show("Create a fresh backup in TiviMate, then press Update again.");return;}
+  final String usedBackup=backupIdentity(selectedBackup);
   busy=true;setup.setEnabled(false);update.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   worker.submit(()->{File work=new File(getCacheDir(),"merge-"+UUID.randomUUID());File stage=new File(root(),".merged-"+UUID.randomUUID());
    try{
@@ -115,7 +128,7 @@ public class MainActivity extends Activity {
     // Authenticate the final result before exposing it to TiviMate.
     show("Checking the updated backup…");TmbCodec.decrypt(merged,new File(work,"verified.zip"));copy(before,new File(getFilesDir(),"receiver-before-update.tmb"));
     if(!stage.mkdir())throw new IOException("Cannot stage the merged update.");copyMissing(pendingBundle(),stage);try(OutputStream manifestOut=new FileOutputStream(new File(stage,"manifest.json"))){manifestOut.write(incomingManifest.toString().getBytes("UTF-8"));}copy(merged,new File(stage,"tidytivi.tmb"));copyMissing(new File(root(),"current"),stage);refreshManifest(stage);verify(stage);activate(stage);remove(pendingBundle());
-    getPreferences(0).edit().remove("pending_merge_at").commit();runOnUiThread(()->{show("Ready: "+count+" channels with your settings and history. Confirm Restore in TiviMate.");handoff();});
+    getPreferences(0).edit().remove("pending_merge_at").putString("used_local_backup",usedBackup).commit();runOnUiThread(()->{show("Ready: "+count+" channels with your settings and history. Confirm Restore in TiviMate.");handoff();});
    }catch(Exception e){show(e instanceof IOException?e.getMessage():"Could not merge this backup. Your existing TiviMate setup was not restored or replaced.");}
    finally{try{remove(work);remove(stage);}catch(Exception ignored){}runOnUiThread(()->{busy=false;setup.setEnabled(true);update.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}
   });

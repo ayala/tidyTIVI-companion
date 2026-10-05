@@ -1,44 +1,59 @@
-# tidyTIVI companion 0.7.0-rc.1
+# tidyTIVI companion 0.7.0-rc.2
 
 A small Android TV / Fire TV receiver for bundles exported by the
 [tidyTIVI Dispatcharr plugin](https://github.com/ayala/tidyTIVI).
 
-## Preservation preview
+## Preservation preview: 0.7.0-rc.2
 
-**Physical Firestick limitation confirmed:** on AFTMM running Fire OS 6.7.1.1
-(NS6711/5908), the Accessibility settings activity rejects launch with Amazon
-`LAUNCHER_SETTINGS` permission, and ADB attempts to enable the companion service
-do not persist (the service list stays empty). Reinstalling through ADB did not
-resolve it. Automatic preservation is unavailable on this tested configuration.
-No TiviMate restore was performed during this test.
+[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.2/tidyTIVI-companion.apk).
+The latest-release link still installs stable 0.6.1, which replaces receiver data.
 
-The [0.7.0-rc.1 APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.1/tidyTIVI-companion.apk)
-includes automatic receiver-backup capture and in-place curation merging.
-The stable 0.6.1 APK still uses the replacement flow documented below.
-The latest-release link does not install this preview.
+Press **Update TiviMate** and choose each time:
 
-The preview requires one-time enabling of **tidyTIVI automatic backup** in
-Android Accessibility settings. Update then downloads the bundle, creates a
-fresh backup through TiviMate's UI, merges curation while retaining personal
-state, and opens the native Restore confirmation. There is no manual backup
-selection. It currently targets TiviMate 5.3.3 with English menus. Firestick
-accessibility setup has not yet been verified. Updates use the account supplied in the export. Matching provider VOD records
-retain their receiver IDs and personal state; an ambiguous provider match stops
-the update. Live and VOD use the account supplied in the export. Unavailable
-titles keep their stored history but are hidden by TiviMate; history cannot be
-translated between unrelated provider IDs.
+- **Keep my settings:** choose **Open TiviMate**, then **Settings → General →
+  Back up data → Internal shared storage → Save**. Do not choose a subfolder.
+  Return to the companion immediately after saving. It detects the new backup,
+  downloads the export and merges it while retaining personal state. Confirm
+  TiviMate's native **Restore** prompt when ready.
+- **Replace everything:** confirm the overwrite, download the export and confirm
+  TiviMate's **Restore** prompt. No local backup is required.
 
-Verified on stock Android TV with TiviMate 5.3.3: real Dropbox download, automatic
-fresh backup, merge, native Restore, live playback/EPG, movie playback and series
-episode playback after an account switch. IDs, favorites, enable flags, movie
-and episode progress, and all preference files survived the database audit.
-A subsequent full update retained newly created movie and episode history;
-TiviMate displayed Resume, Remove from My list, and Resume S1 E1 after restore.
-One series failed with an emulator video-decoder error; another played.
-Physical Firestick preservation and accessibility setup remain unverified.
+The companion records existing backup filenames and the time Keep was selected.
+Only a new backup created after that point is eligible; old backups are never
+silently selected. Neither mode is remembered as the default. Any changes made
+in TiviMate after creating the backup cannot be included in the merge.
 
-Android regression test: `python3 tests/run_android_merge.py emulator-5560`.
-It uses synthetic data in a separate test APK and the sibling plugin checkout.
+This flow needs no Accessibility permission, root, ADB or computer during use.
+The previous accessibility approach failed on a physical AFTMM Firestick running
+Fire OS 6.7.1.1; it is not used by this flow. The companion opens TiviMate itself,
+not its private backup menu. Existing tidyTIVI playlists are matched in place;
+new exported profiles can be added without recreating existing ones. Unrelated
+or ambiguous playlist/provider mappings stop the merge.
+
+Both live TV and VOD use the exported account. Matching native provider IDs keep
+receiver favorites and watch progress. Unavailable titles keep stored history
+but TiviMate may hide them. Different providers' IDs are not interchangeable.
+The tested backup format is TiviMate 5.3.3, schema 60.
+
+### Verification
+
+On a physical AFTMM Firestick running Fire OS 6.7.1.1 and TiviMate 5.3.3,
+rc.2 rejected the pre-existing backup, detected a newly created native backup,
+downloaded the actual Dropbox export, merged it, and opened the native Restore
+confirmation. Restore was deliberately not confirmed during this test.
+Both preference files were byte-for-byte unchanged; SQLite integrity passed.
+All 486 existing channel personal-state rows, 213,175 movie personal-state rows,
+45,857 series personal-state rows, and four playlist IDs were retained. The new
+UK profile was added once. Empty history tables are not evidence of watched
+progress on this device.
+
+Separate Android regression tests cover favorites, hidden settings, movie and
+episode progress, exported-account migration, new profiles and repeat merges:
+`python3 tests/run_android_merge.py emulator-5560`.
+
+The companion background matches TiviMate's dark charcoal. Launcher PNG icon
+and banner assets are included, but this Fire OS launcher still displayed a
+blank tile after an in-place upgrade; the in-app logo renders correctly.
 
 ## Stable 0.6.1: install and update
 
