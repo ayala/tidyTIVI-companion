@@ -1,11 +1,11 @@
-# tidyTIVI companion 0.7.0-rc.3
+# tidyTIVI companion 0.7.0-rc.5
 
 A small Android TV / Fire TV receiver for bundles exported by the
 [tidyTIVI Dispatcharr plugin](https://github.com/ayala/tidyTIVI).
 
-## Preservation preview: 0.7.0-rc.3
+## Preservation preview: 0.7.0-rc.5
 
-[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.3/tidyTIVI-companion.apk).
+[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.5/tidyTIVI-companion.apk).
 The latest-release link still installs stable 0.6.1, which replaces receiver data.
 
 Press **Update TiviMate** and choose each time:
@@ -35,6 +35,20 @@ receiver favorites and watch progress. Unavailable titles keep stored history
 but TiviMate may hide them. Different providers' IDs are not interchangeable.
 The tested backup format is TiviMate 5.3.3, schema 60.
 
+### Provider master playlists
+
+Plugin 0.5.12 can include disabled, unfiltered XC live master playlists alongside
+curated profiles. rc.5 adds these during Keep mode, avoids duplicates on repeat
+merges, and preserves the receiver's enabled state and channel favorites when
+export credentials change. Enable a master in TiviMate Settings → Playlists.
+M3U/FAST fallback channels are regular curated channels and retain their direct
+URLs; recipient XC credentials only affect XC streams.
+
+Master creation, repeat merges with different database IDs, enabled-state and
+favorite preservation across account changes passed Android SQLite regression
+tests. Physical Firestick/native playlist-refresh verification is not yet done
+for this feature.
+
 ### Storage use
 
 rc.3 clears abandoned companion download/merge files on every launch and idle
@@ -62,6 +76,24 @@ while retaining the current bundle and saved connection. The resulting native
 backup passed authentication, ZIP CRC and SQLite integrity checks.
 Cleanup skips an active download or merge, so opening the app cannot delete
 files that its worker is still using.
+
+### Storage failures while TiviMate updates EPG
+
+Cleanup cannot reclaim another app's active guide data. On the tested Firestick,
+TiviMate's startup EPG update consumed roughly 1.6 GB before the companion even
+started downloading; the Fire TV app-details screen showed 1.99 GB of TiviMate
+data. This could overlap the merge and cause an intermittent ENOSPC failure.
+
+For that installation, with the owner's approval, **TiviMate → Settings → EPG →
+Update on app start** was disabled. The **24-hour update interval** and all EPG
+sources were left unchanged. Free space then remained stable with TiviMate open.
+Create a fresh backup after changing this setting so Keep mode preserves it.
+The companion does not automatically change EPG settings or clear TiviMate data.
+A scheduled/manual guide update still requires its own working space; avoiding
+simultaneous updates does not prove that every guide will fit or load correctly.
+
+rc.4 shows separate backup checking, staging, file verification and installation
+steps, and logs the failing storage operation to aid diagnosis.
 
 ### Verification
 

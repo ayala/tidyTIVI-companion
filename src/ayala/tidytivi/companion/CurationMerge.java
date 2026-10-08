@@ -44,6 +44,41 @@ final class CurationMerge {
    if(result.put(gid,key)!=null||!keys.add(key))throw new IOException("Conflicting saved group identities. Update cancelled.");
   }return result;
  }
+ private static void masters(SQLiteDatabase db,SQLiteDatabase src,JSONObject previous,JSONObject next)throws Exception{
+  JSONArray incoming=next.optJSONArray("provider_masters");if(incoming==null)return;
+  JSONArray old=previous.optJSONArray("provider_masters"),mapped=new JSONArray();
+  for(int i=0;i<incoming.length();i++){
+   JSONObject entry=incoming.getJSONObject(i);long sid=entry.getLong("id");
+   List<ContentValues> sourceRows=rows(src,"SELECT * FROM playlists WHERE id=? AND include_tv_channels=1 AND include_vod=0 AND url LIKE 'xc:%'",sid);
+   if(sourceRows.size()!=1)throw new IOException("Invalid provider master playlist.");ContentValues source=sourceRows.get(0);
+   List<ContentValues> targets=new ArrayList<>();
+   if(old!=null)for(int j=0;j<old.length();j++){JSONObject prior=old.getJSONObject(j);if(entry.getString("key").equals(prior.getString("key")))targets.addAll(rows(db,"SELECT * FROM playlists WHERE id=? AND include_tv_channels=1 AND include_vod=0 AND url LIKE 'xc:%'",prior.getLong("id")));}
+   if(targets.isEmpty())targets=rows(db,"SELECT * FROM playlists WHERE name=? AND include_tv_channels=1 AND include_vod=0 AND url LIKE 'xc:%'",source.getAsString("name"));
+   if(targets.size()>1)throw new IOException("Ambiguous provider master playlists.");
+   boolean fresh=targets.isEmpty();long pid=fresh?db.insertOrThrow("playlists",null,copy(source)):id(targets.get(0));
+   JSONObject result=new JSONObject(entry.toString());result.put("id",pid);mapped.put(result);
+   // Same-account masters refresh natively; preserve their current catalogue and personal state.
+   if(!fresh&&source.getAsString("url").equals(targets.get(0).getAsString("url")))continue;
+   Map<Long,Long> groups=new HashMap<>();
+   for(ContentValues group:rows(src,"SELECT * FROM channel_groups WHERE playlist_id=?",sid)){
+    List<ContentValues> found=rows(db,"SELECT id FROM channel_groups WHERE playlist_id=? AND xc_id=?",pid,group.getAsLong("xc_id"));
+    if(found.size()>1)throw new IOException("Ambiguous provider category identities.");
+    long gid;if(found.isEmpty()){ContentValues v=copy(group);v.put("playlist_id",pid);gid=db.insertOrThrow("channel_groups",null,v);}else{gid=id(found.get(0));update(db,"channel_groups",gid,fields(group,"name","position_in_playlist","deleted_time"));}groups.put(id(group),gid);
+   }
+   Map<Long,Long> existing=new HashMap<>();for(ContentValues channel:rows(db,"SELECT id,xc_id FROM channels WHERE playlist_id=?",pid)){Long xc=channel.getAsLong("xc_id");if(xc==null||existing.put(xc,id(channel))!=null)throw new IOException("Ambiguous provider channel identities.");}
+   Set<Long> seen=new HashSet<>();
+   for(ContentValues channel:rows(src,"SELECT * FROM channels WHERE playlist_id=?",sid)){
+    Long xc=channel.getAsLong("xc_id"),gid=groups.get(channel.getAsLong("original_group_id"));if(xc==null||!seen.add(xc)||gid==null)throw new IOException("Invalid provider channel mapping.");
+    Long cid=existing.get(xc);ContentValues v;
+    if(cid==null){v=copy(channel);v.put("playlist_id",pid);v.put("original_group_id",gid);v.putNull("last_group_id");v.put("last_group_playlist_id",0);cid=db.insertOrThrow("channels",null,v);}else{v=fields(channel,"name","url","logo","tvg_id","catchup_type","catchup_hours","catchup_source","position_in_playlist","position_in_group","deleted_time");v.put("original_group_id",gid);update(db,"channels",cid,v);}
+    db.execSQL("DELETE FROM channel_group_links WHERE channel_id=? AND group_id IN (SELECT id FROM channel_groups WHERE playlist_id=? AND is_custom=0)",new Object[]{cid,pid});
+    v=new ContentValues();v.put("channel_id",cid);v.put("group_id",gid);db.insertOrThrow("channel_group_links",null,v);
+   }
+   for(Long xc:existing.keySet())if(!seen.contains(xc)){ContentValues v=new ContentValues();v.put("deleted_time",System.currentTimeMillis());update(db,"channels",existing.get(xc),v);}
+   update(db,"playlists",pid,fields(source,"url","channel_count")); // Keep receiver's enabled/hidden choices.
+  }
+  next.put("provider_masters",mapped);
+ }
  static int merge(File receiver,File incoming,JSONObject oldManifest,JSONObject incomingManifest)throws Exception{
   if(receiver.getCanonicalFile().equals(incoming.getCanonicalFile()))throw new IOException("Separate merge inputs required.");
   SQLiteDatabase db=SQLiteDatabase.openDatabase(receiver.getAbsolutePath(),null,SQLiteDatabase.OPEN_READWRITE);
@@ -114,6 +149,7 @@ final class CurationMerge {
      ContentValues v=new ContentValues();v.put("name",ip.getAsString("name"));v.put("channel_count",incomingChannels.size());update(db,"playlists",pid,v);
     }
     VodMerge.apply(db);
+    masters(db,src,oldManifest,incomingManifest);
     if(!rows(db,"PRAGMA foreign_key_check").isEmpty())throw new IOException("Merged backup failed its relationship check.");
     try(Cursor c=db.rawQuery("PRAGMA integrity_check",null)){if(!c.moveToFirst()||!"ok".equals(c.getString(0)))throw new IOException("Merged backup failed integrity validation.");}
     db.setTransactionSuccessful();

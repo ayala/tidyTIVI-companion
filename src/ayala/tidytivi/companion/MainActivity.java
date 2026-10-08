@@ -30,7 +30,7 @@ public class MainActivity extends Activity {
  }
  private void home(){connecting=false;boolean linked=!getPreferences(0).getString("url","").isEmpty();setup.setText(linked?"Connected":"Connect");styleButton(setup,linked?Color.rgb(35,139,77):BLUE);setContentView(home);setup.setFocusableInTouchMode(true);setup.requestFocus();}
  private volatile String storagePhase="Starting update";
- private void show(String message){storagePhase=message;runOnUiThread(()->status.setText(message));}
+ private void show(String message){android.util.Log.i("tidyTIVIStorage",message+"; free="+getFilesDir().getUsableSpace());storagePhase=message;runOnUiThread(()->status.setText(message));}
  private void stopPairing(){ui.removeCallbacks(expire);if(pairing!=null){pairing.close();pairing=null;}getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
  @Override public void onBackPressed(){if(connecting){stopPairing();home();}else super.onBackPressed();}
  @Override protected void onStop(){if(connecting){stopPairing();home();}super.onStop();}
@@ -130,8 +130,8 @@ public class MainActivity extends Activity {
     int count=CurationMerge.merge(new File(receiver,"TvPlayer.db"),new File(incoming,"TvPlayer.db"),oldManifest,incomingManifest);remove(incoming);
     show("Preparing your updated backup…");File mergedZip=new File(work,"merged.zip"),merged=new File(work,"merged.tmb");TmbCodec.pack(receiver,mergedZip);remove(receiver);TmbCodec.encrypt(mergedZip,merged);remove(mergedZip);
     // Authenticate the final result before exposing it to TiviMate.
-    show("Checking the updated backup…");File verified=new File(work,"verified.zip");TmbCodec.decrypt(merged,verified);remove(verified);
-    try(OutputStream manifestOut=new FileOutputStream(new File(stage,"manifest.json"))){manifestOut.write(incomingManifest.toString().getBytes("UTF-8"));}remove(new File(stage,"tidytivi.tmb"));moveFile(merged,new File(stage,"tidytivi.tmb"));copyMissing(new File(root(),"current"),stage);refreshManifest(stage);verify(stage);activate(stage);remove(pendingBundle());
+    show("Checking the updated backup…");android.util.Log.i("tidyTIVIStorage","merged bytes="+merged.length());File verified=new File(work,"verified.zip");TmbCodec.decrypt(merged,verified);remove(verified);show("Staging the updated backup…");
+    try(OutputStream manifestOut=new FileOutputStream(new File(stage,"manifest.json"))){manifestOut.write(incomingManifest.toString().getBytes("UTF-8"));}remove(new File(stage,"tidytivi.tmb"));moveFile(merged,new File(stage,"tidytivi.tmb"));show("Retaining installed profile assets…");copyMissing(new File(root(),"current"),stage);show("Verifying staged files…");refreshManifest(stage);verify(stage);show("Installing the verified update…");activate(stage);remove(pendingBundle());
     getPreferences(0).edit().remove("pending_merge_at").putString("used_local_backup",usedBackup).commit();runOnUiThread(()->{show("Ready: "+count+" channels with your settings and history. Confirm Restore in TiviMate.");handoff();});
    }catch(Exception e){show(failureMessage(e,"Could not merge this backup. Your existing TiviMate setup was not restored or replaced."));}
    finally{StorageCleanup.quietRemove(work);StorageCleanup.quietRemove(stage);runOnUiThread(()->{busy=false;setup.setEnabled(true);update.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);});}
@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
  private String failureMessage(Exception failure,String fallback){
   for(Throwable e=failure;e!=null;e=e.getCause()){
    String message=String.valueOf(e.getMessage()).toLowerCase(Locale.US);
-   if(message.contains("no space")||message.contains("enospc")||message.contains("sqlite_full")||message.contains("database or disk is full")){android.util.Log.e("tidyTIVIStorage","phase="+storagePhase+"; type="+e.getClass().getSimpleName()+"; free="+getFilesDir().getUsableSpace()+"; error="+e.getMessage());return "Not enough storage to complete the update. Temporary files will be cleared. Free more internal storage and try again. Your manual TiviMate backup is kept.";}
+   if(message.contains("no space")||message.contains("enospc")||message.contains("sqlite_full")||message.contains("database or disk is full")){android.util.Log.e("tidyTIVIStorage","phase="+storagePhase+"; type="+e.getClass().getSimpleName()+"; free="+getFilesDir().getUsableSpace()+"; error="+e.getMessage(),failure);return "Not enough storage to complete the update. Temporary files will be cleared. Free more internal storage and try again. Your manual TiviMate backup is kept.";}
   }
   return failure instanceof UserError?failure.getMessage():fallback;
  }
