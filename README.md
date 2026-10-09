@@ -1,11 +1,11 @@
-# tidyTIVI companion 0.7.0-rc.5
+# tidyTIVI companion 0.7.0-rc.6
 
 A small Android TV / Fire TV receiver for bundles exported by the
 [tidyTIVI Dispatcharr plugin](https://github.com/ayala/tidyTIVI).
 
-## Preservation preview: 0.7.0-rc.5
+## Preservation preview: 0.7.0-rc.6
 
-[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.5/tidyTIVI-companion.apk).
+[Download the preview APK](https://github.com/ayala/tidyTIVI-companion/releases/download/v0.7.0-rc.6/tidyTIVI-companion.apk).
 The latest-release link still installs stable 0.6.1, which replaces receiver data.
 
 Press **Update TiviMate** and choose each time:
@@ -224,3 +224,14 @@ the link was saved; Update TiviMate still verifies the downloaded bundle.
 
 Verified 0.6.1 QR submission and retry in the Android TV emulator; the real saved
 link was preserved and the home screen returned successfully.
+
+## Connect without pasting a link
+
+With plugin 0.5.13+, download `tidytivi-setup.json` from the plugin's **Docs** page
+and send it privately to the receiver. Save it in Files on the phone. Open
+**Connect** on the TV, scan its QR on the same Wi-Fi, and tap **Choose setup file**.
+Selecting the file connects automatically and saves the link for future updates.
+**Enter a link instead** retains the existing manual method. No additional hosted
+service or recipient cloud account is needed. The setup file grants access to the
+export and must remain private. Physical iPhone/Firestick file selection still
+requires device verification.
